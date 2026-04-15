@@ -40,6 +40,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ---- Caching ----
+
+      - name: Cache vcpkg packages
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.VCPKG_INSTALLATION_ROOT }}/installed
+            ${{ env.VCPKG_INSTALLATION_ROOT }}/packages
+          key: vcpkg-gmp-x64-windows-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: vcpkg-gmp-x64-windows-
+
+      - name: Cache Homebrew packages
+        if: runner.os == 'macOS' && !matrix.rosetta
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew
+            /opt/homebrew/Cellar/gmp
+          key: brew-arm64-gmp-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: brew-arm64-gmp-
+
+      - name: Cache x86_64 Homebrew
+        if: matrix.rosetta
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/Homebrew
+            /usr/local/Cellar
+            /usr/local/lib
+            /usr/local/include
+            /usr/local/bin
+          key: brew-x86_64-gmp-cmake-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: brew-x86_64-gmp-cmake-
+
+      # ---- Install dependencies ----
+
       - name: Install GMP (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev
@@ -51,7 +88,11 @@ jobs:
       - name: Install x86_64 Homebrew and GMP (macOS via Rosetta)
         if: matrix.rosetta
         run: |
-          arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          if [ -x /usr/local/bin/brew ]; then
+            echo "x86_64 Homebrew already cached"
+          else
+            arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          fi
           arch -x86_64 /usr/local/bin/brew install gmp cmake
 
       - name: Install GMP (Windows)
@@ -59,6 +100,8 @@ jobs:
         run: |
           vcpkg install gmp:x64-windows
           echo "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
+
+      # ---- Configure ----
 
       - name: Configure (Unix)
         if: runner.os != 'Windows' && !matrix.rosetta
@@ -84,6 +127,8 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$env:CMAKE_TOOLCHAIN_FILE" `
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/_dist"
 
+      # ---- Build ----
+
       - name: Build
         if: "!matrix.rosetta"
         run: cmake --build build --config Release
@@ -92,6 +137,8 @@ jobs:
         if: matrix.rosetta
         run: arch -x86_64 /usr/local/bin/cmake --build build --config Release
 
+      # ---- Install ----
+
       - name: Install
         if: "!matrix.rosetta"
         run: cmake --install build --config Release
@@ -99,6 +146,8 @@ jobs:
       - name: Install (Rosetta)
         if: matrix.rosetta
         run: arch -x86_64 /usr/local/bin/cmake --install build --config Release
+
+      # ---- Test ----
 
       - name: Run tests (Unix)
         if: runner.os != 'Windows' && !matrix.rosetta
@@ -123,6 +172,8 @@ jobs:
           if (Test-Path simexp_test.exe) { ./simexp_test.exe 10 512 5 3 50 }
           if (Test-Path fixexp_test.exe) { ./fixexp_test.exe 10 512 5 200 }
           if (Test-Path millerrabin_test.exe) { ./millerrabin_test.exe 10 512 100 }
+
+      # ---- Package & Upload ----
 
       - name: Package
         run: |
