@@ -21,11 +21,11 @@ jobs:
           - os: ubuntu-24.04-arm
             arch: aarch64
             artifact: gmpmee-linux-aarch64
-          # macOS x86_64
+          # macOS x86_64 (via Rosetta)
           - os: macos-latest
             arch: x86_64
             artifact: gmpmee-macos-x86_64
-            cmake_extra: -DCMAKE_OSX_ARCHITECTURES=x86_64
+            rosetta: true
           # macOS ARM64 (Apple Silicon)
           - os: macos-latest
             arch: arm64
@@ -44,9 +44,15 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev
 
-      - name: Install GMP (macOS)
-        if: runner.os == 'macOS'
+      - name: Install GMP (macOS native)
+        if: runner.os == 'macOS' && !matrix.rosetta
         run: brew install gmp
+
+      - name: Install x86_64 Homebrew and GMP (macOS via Rosetta)
+        if: matrix.rosetta
+        run: |
+          arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          arch -x86_64 /usr/local/bin/brew install gmp
 
       - name: Install GMP (Windows)
         if: runner.os == 'Windows'
@@ -55,12 +61,20 @@ jobs:
           echo "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
 
       - name: Configure (Unix)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && !matrix.rosetta
         run: |
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/_dist
+
+      - name: Configure (macOS x86_64 via Rosetta)
+        if: matrix.rosetta
+        run: |
+          arch -x86_64 cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/_dist \
-            ${{ matrix.cmake_extra }}
+            -DCMAKE_PREFIX_PATH=/usr/local \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
@@ -71,18 +85,36 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/_dist"
 
       - name: Build
+        if: "!matrix.rosetta"
         run: cmake --build build --config Release
 
+      - name: Build (Rosetta)
+        if: matrix.rosetta
+        run: arch -x86_64 cmake --build build --config Release
+
       - name: Install
+        if: "!matrix.rosetta"
         run: cmake --install build --config Release
 
+      - name: Install (Rosetta)
+        if: matrix.rosetta
+        run: arch -x86_64 cmake --install build --config Release
+
       - name: Run tests (Unix)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && !matrix.rosetta
         run: |
           cd build
           ./simexp_test 10 512 5 3 50
           ./fixexp_test 10 512 5 200
           ./millerrabin_test 10 512 100
+
+      - name: Run tests (macOS x86_64 via Rosetta)
+        if: matrix.rosetta
+        run: |
+          cd build
+          arch -x86_64 ./simexp_test 10 512 5 3 50
+          arch -x86_64 ./fixexp_test 10 512 5 200
+          arch -x86_64 ./millerrabin_test 10 512 100
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
