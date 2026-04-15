@@ -1,6 +1,6 @@
 /*
 
-Copyright 2008 2009 Douglas Wikström
+Copyright 2008 2009 Douglas Wikstrï¿½m
 
 This file is part of GMP Modular Exponentiation Extension (GMPMEE).
 
@@ -22,6 +22,7 @@ License along with GMPMEE.  If not, see
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <gmp.h>
 #include "gmpmee.h"
