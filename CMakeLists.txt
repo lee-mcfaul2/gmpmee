@@ -3,15 +3,40 @@ project(gmpmee VERSION 1.0.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 99)
 
-# Find GMP
-find_library(GMP_LIBRARY NAMES gmp)
-find_path(GMP_INCLUDE_DIR NAMES gmp.h)
+# Find GMP - prefer static
+find_library(GMP_LIBRARY_STATIC NAMES libgmp.a gmp.lib libgmp.lib
+    HINTS
+    ${CMAKE_PREFIX_PATH}/lib
+    /usr/local/lib
+    /opt/homebrew/lib
+)
+find_library(GMP_LIBRARY NAMES gmp
+    HINTS
+    ${CMAKE_PREFIX_PATH}/lib
+    /usr/local/lib
+    /opt/homebrew/lib
+)
+find_path(GMP_INCLUDE_DIR NAMES gmp.h
+    HINTS
+    ${CMAKE_PREFIX_PATH}/include
+    /usr/local/include
+    /opt/homebrew/include
+)
 
-if(NOT GMP_LIBRARY OR NOT GMP_INCLUDE_DIR)
+# Use static GMP if available, otherwise fall back to shared
+if(GMP_LIBRARY_STATIC)
+    set(GMP_LIB ${GMP_LIBRARY_STATIC})
+    message(STATUS "Found GMP (static): ${GMP_LIB}")
+elseif(GMP_LIBRARY)
+    set(GMP_LIB ${GMP_LIBRARY})
+    message(STATUS "Found GMP (shared): ${GMP_LIB}")
+else()
     message(FATAL_ERROR "GNU MP library not found, see http://gmplib.org/")
 endif()
 
-message(STATUS "Found GMP: ${GMP_LIBRARY}")
+if(NOT GMP_INCLUDE_DIR)
+    message(FATAL_ERROR "GNU MP headers not found, see http://gmplib.org/")
+endif()
 message(STATUS "GMP include: ${GMP_INCLUDE_DIR}")
 
 # Check architecture for 64-bit
@@ -52,62 +77,76 @@ if(ENABLE_REDC)
     add_definitions(-DREDC)
 endif()
 
-# Shared library
-add_library(gmpmee SHARED ${LIB_SOURCES})
-target_include_directories(gmpmee PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-    $<INSTALL_INTERFACE:include>
+# Static library with GMP baked in
+add_library(gmpmee_objects OBJECT ${LIB_SOURCES})
+target_include_directories(gmpmee_objects PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${GMP_INCLUDE_DIR}
 )
-target_link_libraries(gmpmee PUBLIC ${GMP_LIBRARY})
-set_target_properties(gmpmee PROPERTIES
-    VERSION ${PROJECT_VERSION}
-    SOVERSION 1
-    POSITION_INDEPENDENT_CODE ON
-    PUBLIC_HEADER gmpmee.h
-)
-
-# Static library
-add_library(gmpmee_static STATIC ${LIB_SOURCES})
-target_include_directories(gmpmee_static PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-    $<INSTALL_INTERFACE:include>
-    ${GMP_INCLUDE_DIR}
-)
-target_link_libraries(gmpmee_static PUBLIC ${GMP_LIBRARY})
-set_target_properties(gmpmee_static PROPERTIES
-    OUTPUT_NAME gmpmee
+set_target_properties(gmpmee_objects PROPERTIES
     POSITION_INDEPENDENT_CODE ON
 )
 
-# Test executables
+# Create a fat static library that includes both gmpmee and GMP
+# We do this by extracting GMP's .a and combining the object files
+add_library(gmpmee_thin STATIC $<TARGET_OBJECTS:gmpmee_objects>)
+set_target_properties(gmpmee_thin PROPERTIES
+    OUTPUT_NAME gmpmee_thin
+    POSITION_INDEPENDENT_CODE ON
+)
+
+# Custom target to create the fat static library
+if(WIN32)
+    # On Windows with MSVC, use lib.exe to merge
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/libgmpmee.lib
+        COMMAND ${CMAKE_AR} /OUT:${CMAKE_BINARY_DIR}/libgmpmee.lib
+            $<TARGET_FILE:gmpmee_thin> ${GMP_LIB}
+        DEPENDS gmpmee_thin
+        COMMENT "Creating fat static library with GMP included"
+    )
+    add_custom_target(gmpmee_fat ALL DEPENDS ${CMAKE_BINARY_DIR}/libgmpmee.lib)
+    install(FILES ${CMAKE_BINARY_DIR}/libgmpmee.lib
+        DESTINATION ${CMAKE_INSTALL_PREFIX}/lib)
+else()
+    # On Unix, use a MRI script to merge .a files
+    file(WRITE ${CMAKE_BINARY_DIR}/merge.mri
+"create ${CMAKE_BINARY_DIR}/libgmpmee.a
+addlib $<TARGET_FILE:gmpmee_thin>
+addlib ${GMP_LIB}
+save
+end
+")
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/libgmpmee.a
+        COMMAND ${CMAKE_AR} -M < ${CMAKE_BINARY_DIR}/merge.mri
+        DEPENDS gmpmee_thin
+        COMMENT "Creating fat static library with GMP included"
+    )
+    add_custom_target(gmpmee_fat ALL DEPENDS ${CMAKE_BINARY_DIR}/libgmpmee.a)
+    install(FILES ${CMAKE_BINARY_DIR}/libgmpmee.a
+        DESTINATION ${CMAKE_INSTALL_PREFIX}/lib)
+endif()
+
+install(FILES gmpmee.h DESTINATION ${CMAKE_INSTALL_PREFIX}/include)
+
+# Test executables - link statically against the fat lib
 add_executable(simexp_test simexp_test.c)
-target_link_libraries(simexp_test gmpmee)
+target_include_directories(simexp_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${GMP_INCLUDE_DIR})
+target_link_libraries(simexp_test gmpmee_thin ${GMP_LIB})
 
 add_executable(simexp_time simexp_time.c)
-target_link_libraries(simexp_time gmpmee)
+target_include_directories(simexp_time PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${GMP_INCLUDE_DIR})
+target_link_libraries(simexp_time gmpmee_thin ${GMP_LIB})
 
 add_executable(fixexp_test fixexp_test.c)
-target_link_libraries(fixexp_test gmpmee)
+target_include_directories(fixexp_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${GMP_INCLUDE_DIR})
+target_link_libraries(fixexp_test gmpmee_thin ${GMP_LIB})
 
 add_executable(fixexp_time fixexp_time.c)
-target_link_libraries(fixexp_time gmpmee)
+target_include_directories(fixexp_time PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${GMP_INCLUDE_DIR})
+target_link_libraries(fixexp_time gmpmee_thin ${GMP_LIB})
 
 add_executable(millerrabin_test millerrabin_test.c)
-target_link_libraries(millerrabin_test gmpmee)
-
-# Install rules
-include(GNUInstallDirs)
-install(TARGETS gmpmee gmpmee_static
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
-
-# CPack for packaging
-set(CPACK_PACKAGE_NAME "gmpmee")
-set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "GMP Modular Exponentiation Extension")
-set(CPACK_GENERATOR "TGZ;ZIP")
-set(CPACK_SOURCE_GENERATOR "TGZ")
-include(CPack)
+target_include_directories(millerrabin_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${GMP_INCLUDE_DIR})
+target_link_libraries(millerrabin_test gmpmee_thin ${GMP_LIB})

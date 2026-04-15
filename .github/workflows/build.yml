@@ -37,23 +37,22 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
+    defaults:
+      run:
+        shell: ${{ matrix.os == 'windows-latest' && 'msys2 {0}' || 'bash' }}
+
     steps:
       - uses: actions/checkout@v4
 
-      # ---- Caching ----
-
-      - name: Cache vcpkg packages
+      - name: Setup MSYS2 (Windows)
         if: runner.os == 'Windows'
-        id: vcpkg-cache
-        uses: actions/cache@v4
+        uses: msys2/setup-msys2@v2
         with:
-          path: |
-            ${{ env.VCPKG_INSTALLATION_ROOT }}/installed
-            ${{ env.VCPKG_INSTALLATION_ROOT }}/packages
-            ${{ env.VCPKG_INSTALLATION_ROOT }}/downloads
-            ${{ env.VCPKG_INSTALLATION_ROOT }}/buildtrees/gmp
-          key: vcpkg-gmp-x64-windows-${{ hashFiles('.github/workflows/build.yml') }}
-          restore-keys: vcpkg-gmp-x64-windows-
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-gmp make
+          update: false
+
+      # ---- Caching ----
 
       - name: Cache Homebrew packages
         if: runner.os == 'macOS' && !matrix.rosetta
@@ -82,6 +81,7 @@ jobs:
 
       - name: Install GMP (Ubuntu)
         if: runner.os == 'Linux'
+        shell: bash
         run: sudo apt-get update && sudo apt-get install -y libgmp-dev
 
       - name: Install GMP (macOS native)
@@ -97,16 +97,6 @@ jobs:
             arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
           fi
           arch -x86_64 /usr/local/bin/brew install gmp cmake
-
-      - name: Install GMP (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          if ("${{ steps.vcpkg-cache.outputs.cache-hit }}" -ne "true") {
-            vcpkg install gmp:x64-windows
-          } else {
-            Write-Host "Using cached vcpkg packages"
-          }
-          echo "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
 
       # ---- Configure ----
 
@@ -129,10 +119,10 @@ jobs:
       - name: Configure (Windows)
         if: runner.os == 'Windows'
         run: |
-          cmake -B build `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_TOOLCHAIN_FILE="$env:CMAKE_TOOLCHAIN_FILE" `
-            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/_dist"
+          cmake -B build \
+            -G "MinGW Makefiles" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/_dist
 
       # ---- Build ----
 
@@ -175,10 +165,10 @@ jobs:
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
         run: |
-          cd build/Release
-          if (Test-Path simexp_test.exe) { ./simexp_test.exe 10 512 5 3 50 }
-          if (Test-Path fixexp_test.exe) { ./fixexp_test.exe 10 512 5 200 }
-          if (Test-Path millerrabin_test.exe) { ./millerrabin_test.exe 10 512 100 }
+          cd build
+          ./simexp_test.exe 10 512 5 3 50
+          ./fixexp_test.exe 10 512 5 200
+          ./millerrabin_test.exe 10 512 100
 
       # ---- Package & Upload ----
 
