@@ -22,9 +22,10 @@ jobs:
             arch: aarch64
             artifact: gmpmee-linux-aarch64
           # macOS x86_64
-          - os: macos-13
+          - os: macos-latest
             arch: x86_64
             artifact: gmpmee-macos-x86_64
+            cmake_extra: -DCMAKE_OSX_ARCHITECTURES=x86_64
           # macOS ARM64 (Apple Silicon)
           - os: macos-latest
             arch: arm64
@@ -58,7 +59,8 @@ jobs:
         run: |
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/_dist
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/_dist \
+            ${{ matrix.cmake_extra }}
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
