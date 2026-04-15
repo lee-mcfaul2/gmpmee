@@ -37,10 +37,6 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
-    defaults:
-      run:
-        shell: ${{ matrix.os == 'windows-latest' && 'msys2 {0}' || 'bash' }}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -49,7 +45,7 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
-          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-gmp make
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja mingw-w64-x86_64-gmp
           update: false
 
       # ---- Caching ----
@@ -118,16 +114,22 @@ jobs:
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
+        shell: msys2 {0}
         run: |
           cmake -B build \
-            -G "MinGW Makefiles" \
+            -G "Ninja" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/_dist
+            -DCMAKE_INSTALL_PREFIX=$(cygpath -u '${{ github.workspace }}/_dist')
 
       # ---- Build ----
 
       - name: Build
-        if: "!matrix.rosetta"
+        if: runner.os != 'Windows' && !matrix.rosetta
+        run: cmake --build build --config Release
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
         run: cmake --build build --config Release
 
       - name: Build (Rosetta)
@@ -137,7 +139,12 @@ jobs:
       # ---- Install ----
 
       - name: Install
-        if: "!matrix.rosetta"
+        if: runner.os != 'Windows' && !matrix.rosetta
+        run: cmake --install build --config Release
+
+      - name: Install (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
         run: cmake --install build --config Release
 
       - name: Install (Rosetta)
@@ -164,6 +171,7 @@ jobs:
 
       - name: Run tests (Windows)
         if: runner.os == 'Windows'
+        shell: msys2 {0}
         run: |
           cd build
           ./simexp_test.exe 10 512 5 3 50
@@ -172,10 +180,18 @@ jobs:
 
       # ---- Package & Upload ----
 
-      - name: Package
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
         run: |
           cd ${{ github.workspace }}/_dist
           tar czf ${{ github.workspace }}/${{ matrix.artifact }}.tar.gz .
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          cd $(cygpath -u '${{ github.workspace }}/_dist')
+          tar czf $(cygpath -u '${{ github.workspace }}')/${{ matrix.artifact }}.tar.gz .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
