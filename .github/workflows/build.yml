@@ -52,7 +52,7 @@ jobs:
         if: matrix.rosetta
         run: |
           arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          arch -x86_64 /usr/local/bin/brew install gmp
+          arch -x86_64 /usr/local/bin/brew install gmp cmake
 
       - name: Install GMP (Windows)
         if: runner.os == 'Windows'
@@ -70,7 +70,7 @@ jobs:
       - name: Configure (macOS x86_64 via Rosetta)
         if: matrix.rosetta
         run: |
-          arch -x86_64 cmake -B build \
+          arch -x86_64 /usr/local/bin/cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/_dist \
             -DCMAKE_PREFIX_PATH=/usr/local \
@@ -90,7 +90,7 @@ jobs:
 
       - name: Build (Rosetta)
         if: matrix.rosetta
-        run: arch -x86_64 cmake --build build --config Release
+        run: arch -x86_64 /usr/local/bin/cmake --build build --config Release
 
       - name: Install
         if: "!matrix.rosetta"
@@ -98,7 +98,7 @@ jobs:
 
       - name: Install (Rosetta)
         if: matrix.rosetta
-        run: arch -x86_64 cmake --install build --config Release
+        run: arch -x86_64 /usr/local/bin/cmake --install build --config Release
 
       - name: Run tests (Unix)
         if: runner.os != 'Windows' && !matrix.rosetta
