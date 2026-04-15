@@ -1,0 +1,121 @@
+name: Build & Package
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            arch: x86_64
+            artifact: gmpmee-linux-x86_64
+          # Linux ARM64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+            artifact: gmpmee-linux-aarch64
+          # macOS x86_64
+          - os: macos-13
+            arch: x86_64
+            artifact: gmpmee-macos-x86_64
+          # macOS ARM64 (Apple Silicon)
+          - os: macos-latest
+            arch: arm64
+            artifact: gmpmee-macos-arm64
+          # Windows x86_64
+          - os: windows-latest
+            arch: x86_64
+            artifact: gmpmee-windows-x86_64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GMP (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgmp-dev
+
+      - name: Install GMP (macOS)
+        if: runner.os == 'macOS'
+        run: brew install gmp
+
+      - name: Install GMP (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          vcpkg install gmp:x64-windows
+          echo "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
+
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cmake -B build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:CMAKE_TOOLCHAIN_FILE" `
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/install"
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Install
+        run: cmake --install build --config Release
+
+      - name: Run tests (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd build
+          ./simexp_test 10 512 5 3 50
+          ./fixexp_test 10 512 5 200
+          ./millerrabin_test 10 512 100
+
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd build/Release
+          if (Test-Path simexp_test.exe) { ./simexp_test.exe 10 512 5 3 50 }
+          if (Test-Path fixexp_test.exe) { ./fixexp_test.exe 10 512 5 200 }
+          if (Test-Path millerrabin_test.exe) { ./millerrabin_test.exe 10 512 100 }
+
+      - name: Package
+        run: |
+          cd ${{ github.workspace }}/install
+          tar czf ${{ github.workspace }}/${{ matrix.artifact }}.tar.gz .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.tar.gz
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.tar.gz
+          generate_release_notes: true

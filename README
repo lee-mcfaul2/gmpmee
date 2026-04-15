@@ -1,0 +1,78 @@
+
+
+           GMP MODULAR EXPONENTIATION EXTENSION (GMPMEE)
+
+This is a minor extension of the Gnu Multiprecision Library (GNU MP).
+It adds simultaneous modular exponentiation and fixed base modular
+exponentiation functionality to the set of integer functions (the
+mpz-functions), as well as primality testing routines.
+
+GMP does contain primality testing routines, but they do not use
+cryptographically strong randomness and does not allow testing or
+sieving for safe-primality.
+
+For a detailed account of such algorithms, a good source is Handbook
+of Applied Cryptography, Menezes, Oorshot, and Vanstone, which is
+available for free at http://www.cacr.math.uwaterloo.ca/hac.
+
+
+                         BUILDING
+
+Building has only been tested with GMP 4.3.1 or later. Use
+
+        shell> ./configure
+        shell> make
+
+to build the library and also some rudimentary testing and timing
+executables named simexp_test, simexp_time, fixexp_test,
+fixexp_time. Optionally, you may generate HTML documentation using
+doxygen as follows
+
+        shell> make doc
+
+the documentation ends up in the subdirectory doc. This assumes that
+you have installed doxygen.
+
+
+                     FASTER BUILD OPTION
+
+The default is to build the library cleanly on top of the official GMP
+interface, but the option --enable-redc may be given to ./configure to
+enable some more efficient code that builds on code from under the
+hood of GMP. The drawback of this approach is that the source of GMP
+must be available, e.g., through the C_INCLUDE_PATH shell
+variable. This code was provided by the main author of GMP.
+
+
+                         INSTALLING
+
+Use
+
+        shell> make install
+
+to install the library libgmpmee.{la,a,so} and the corresponding
+header file gmpmee.h in the standard locations. See INSTALL for
+details on other ways to invoke ./configure, e.g., to use a user-local
+installation.
+
+
+                           USAGE
+
+If you have done a standard install you may use the library by
+including gmpmee.h and adding the flags -lgmp and -lgmpmee. We could
+for example compile the testing code for simexp using
+
+        shell> gcc simexp_test.c -o simexp_test -lgmpmee -lgmp
+
+If you have done a non-standard installation you may need to update
+some environment variables.
+
+
+                        REPORTING BUGS
+
+If you find a bug in the library using a standard build, which does
+not originate within GNU MP itself, please make sure to tell us about
+it, but do not submit the bug directly to GMP.
+
+Instead, you may report bugs to dog@csc.kth.se, but please follow the
+advice provided in the GNU MP for how to submit bugs.
